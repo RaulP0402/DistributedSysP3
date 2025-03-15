@@ -46,7 +46,7 @@ public class Coordinator {
     public void run() {
 
         // Start worker threads (10 of them)
-        for (long i = 1; i < 10; i++) {
+        for (long i = 0; i < 10; i++) {
             final long workerID = i;
             new Thread(() -> startWorkerThread(workerID)).start();
         }
@@ -97,13 +97,18 @@ public class Coordinator {
                         // If data is available, read the command from the client
                         if (client.commandDataIn.available() > 0) {
                             String command = client.commandDataIn.readUTF();
-                            System.out.println("Command received from client: " + key + " " + command);
-                            
-                            // Process register
-                            if (command.startsWith("register")) {
-                                // register <portNumber>  <clientProvidedID>
-                                String[] parts = command.split(" ");
-                                registerClient(Long.parseLong(parts[2]), Integer.parseInt(parts[1]));
+                            System.out.println("Command received from client " + key + " : " + command);
+
+                            String[] parts = command.split(" ");
+                            switch (parts[0]) {
+                                case ("register"):
+                                    registerClient(Long.parseLong(parts[2]), Integer.parseInt(parts[1]));
+                                    break;
+                                case ("deregister"):
+                                    deregisterClient(Long.parseLong(parts[1]));
+                                    break;
+                                default:
+                                    break;
                             }
                             
                             // Send awknoledgement to client that you processed command
@@ -120,36 +125,78 @@ public class Coordinator {
         }
     }
 
-    // Placeholder for handling client registration
+    /*  Register Client
+     *  Upon booting up the participant executable, every participant will connect to the coordinator and 
+     *  be assigned a coordintor-assigned ID and have a client object created in the clientMap.
+     *  The participant will then be able to send messages to the coordinator.
+     * 
+     * 1. Get the assigned coordinator ID of the client (this is assigned upon launching Participant.java) so it will always be present.
+     * 2. Get the client object of the clientID (this is also assigned upon launching Participant.java).
+     * 3. Start a serverSocket and await connection for the message socket from participant.
+     * 4. Set connected to True, last message received is the current time, messageSocket is the socket received on the serverSocket.accpet().
+     * 5. Create data streams for the message socket.
+     */
     public void registerClient(long clientProvidedId, int port) throws IOException{
         // Find assigned coordinator ID
         Long assignedId = clientIdMap.get(clientProvidedId);
 
         Client client = clientMap.get(assignedId);
-        try (ServerSocket messageServerSocket = new ServerSocket(port)) {
-            // Send message to client that youre ready to accept socket
+        // If client hasn't been registered yet, create a new message socket for it
+        if (client.messageSocket == null) {
+            try (ServerSocket messageServerSocket = new ServerSocket(port)) {
+                // Send message to client that youre ready to accept socket
+                client.commandDataOut.writeUTF("OK");
+                client.commandDataOut.flush();
+                
+                Socket messageSocket = messageServerSocket.accept();
+                
+                client.setConnected(true);
+                client.lastMsgReceived = System.currentTimeMillis();
+                client.messageSocket = messageSocket;
+                client.messageDataIn = new DataInputStream(messageSocket.getInputStream());
+                client.messageDataOut = new DataOutputStream(messageSocket.getOutputStream());
+            }
+        }
+    }
+
+    /*  Deregister client
+        1. Get the coordinator-assigned ID of the client
+        2. Get the client object of the client
+        3. Set connected to false
+        4. Close and set messageSocket to null
+        5. Close data streams from message socket
+
+        NOTE: We still maintain the client object in the client map and the coordianor-asssigned ID in the clientIdMap
+        This is to ensure we still can read from commandSocket and process any future commands (i.e register).
+     */
+    public void deregisterClient(long clientProvidedId) {
+        try {
+            Long assignedID = clientIdMap.get(clientProvidedId);
+        
+            Client client = clientMap.get(assignedID);
+
+            // Set connected to false
+            client.setConnected(false);
+            // Close and set messsae socket to null
+            client.messageSocket.close();
+            client.messageSocket = null;
+
+            // Close data streams from message socket
+            client.messageDataIn.close();
+            client.messageDataOut.close();
+
+            // Send awknoledgement to client
             client.commandDataOut.writeUTF("OK");
             client.commandDataOut.flush();
-            
-            Socket messageSocket = messageServerSocket.accept();
-            
-            client.setConnected(true);
-            client.lastMsgReceived = System.currentTimeMillis();
-            client.messageSocket = messageSocket;
-            client.messageDataIn = new DataInputStream(messageSocket.getInputStream());
-            client.messageDataOut = new DataOutputStream(messageSocket.getOutputStream());
+        } catch (IOException e) {
+            System.out.println("Error deregistering client: " + clientProvidedId + " " + e.getMessage());
         }
     }
 
-    // Placeholder for handling client deregistration
-    public void deregisterClient(long clientProvidedId) {
-        Long assignedId = clientIdMap.remove(clientProvidedId);
-        if (assignedId != null) {
-            clientMap.remove(assignedId);
-        }
-    }
-
-    // Placeholder for handling client disconnection
+    /*  Disconnect client
+     * 
+     *  NOTE: This method works similar to deregister client. We set connected to false and close the message socket.
+     */
     public void disconnectClient(long clientProvidedId) {
         Long assignedId = clientIdMap.get(clientProvidedId);
         if (assignedId != null) {
@@ -157,7 +204,11 @@ public class Coordinator {
         }
     }
 
-    // Placeholder for handling client reconnection
+    /*  Reconnect client
+     * 
+     *  NOTE: This method works similar to register client. We get the portNumber from command and 
+     *  create a new message socket for the client.
+     */
     public void reconnectClient(long clientProvidedId, String ipAddress, int port) {
         Long assignedId = clientIdMap.get(clientProvidedId);
         if (assignedId != null) {
@@ -166,7 +217,12 @@ public class Coordinator {
         }
     }
 
-    // Placeholder for handling message multicast
+    /*  Multicast message
+     *  
+     * NOTE: Here, we get the message from the client and add it to the global message queue. 
+     * Then, we iterate through all the clients and if the client is currently connected then  we send the messsage
+     * through theyr message socket.
+     */
     public void multicastMessage(long clientProvidedId, String message) {
         
         Message msg = new Message(message, System.currentTimeMillis());
@@ -177,6 +233,9 @@ public class Coordinator {
         }
     }
 
+    /*
+     * This method checks if the message is older than T_now - T_d
+     */
     private Boolean isStaleMessage(Message message) {
         return (System.currentTimeMillis() - this.T_d) > message.timestamp;
     }
@@ -197,6 +256,8 @@ public class Coordinator {
             this.commandSocket = commandSocket;
             this.commandDataIn = new DataInputStream(commandSocket.getInputStream());
             this.commandDataOut = new DataOutputStream(commandSocket.getOutputStream());
+
+            this.messageSocket = null;
         }
 
         public void setConnected(boolean status) {

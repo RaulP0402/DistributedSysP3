@@ -10,9 +10,10 @@ class Participant {
 
     private long ID;
     private String messageFile;
-    Socket commandSocket, messageSocket;
-    DataInputStream commandDataIn, messageDataIn;
-    DataOutputStream commandDataOut, messageDataOut;
+    private Thread messageThread = null;
+    Socket commandSocket;
+    DataInputStream commandDataIn;
+    DataOutputStream commandDataOut;
 
     public void run(String configFile) {
 
@@ -43,49 +44,127 @@ class Participant {
         }
 
 
+        // Read user commands from std input
         try (Scanner scanner = new Scanner(System.in)) {
             String command = "";
             while (!command.equals("exit")) {
                 System.out.print("myParticipant> ");
                 command = scanner.nextLine();
+                
+                String[] parts = command.split(" ");
 
-                if (command.startsWith("register")) {
-                    handleRegister(command, ipAndPort[0]);
-                } else {
-                    commandDataOut.writeUTF(command + " " + String.valueOf(ID));
-                    commandDataOut.flush();
+                switch(parts[0]) {
+                    case ("register"):
+                        handleRegister(command, ipAndPort[0]);
+                        commandDataIn.readUTF();
+                        break;
+                    case ("deregister"):
+                        handleDeregister(command);
+                        commandDataIn.readUTF();
+                        break;
+                    case ("disconnect"):
+                        System.out.println("ERROR: Disconnect not implemented");
+                        break;
+                    case ("reconnect"):
+                        System.out.println("ERROR: Reconnect not implemented");
+                        break;
+                    case ("msend"):
+                        System.out.println("ERROR: msend not implemented");
+                        break;
+                    default:
+                        // TODO: Delete sending this command to coordinator
+                        commandDataOut.writeUTF(command + " " + String.valueOf(ID));
+                        commandDataOut.flush();
+                        commandDataIn.readUTF();
+                        System.out.println("ERROR: Invalid command");
+                        break;
                 }
-
-                // Get awknowledgement from coordinator 
-                commandDataIn.readUTF();
             }
 
         } catch (Exception e) {
             System.out.println("Error reading from System.in" + e.toString());
             return;
         }
+
     }
 
-    public void handleRegister(String command, String ip) {
+    private void handleRegister(String command, String ip) {
         try {
+            // Create messageFile
+            File file = new File(messageFile);
+            file.createNewFile();
+
             // Send command to coordinator
             commandDataOut.writeUTF(command + " " + String.valueOf(ID));
             commandDataOut.flush();
-            // Await resul t from coordinator
+
+            // Await awknoledgement from coordinator
             commandDataIn.readUTF();
 
-            String[] parts = command.split(" ");
-            messageSocket = new Socket(ip, Integer.parseInt(parts[1]));
-            messageDataIn = new DataInputStream( messageSocket.getInputStream() );
-            messageDataOut = new DataOutputStream( messageSocket.getOutputStream() );
+            // Start a new thread to handle messages
+            messageThread = new Thread ( new MessageHandler(command, ip, messageFile));
+            messageThread.start();
+
         } catch (IOException e) {
             System.out.println("Error registering participant with coordinator: " + e.toString());
+        }
+    }
+
+    private void handleDeregister(String command) {
+        try {
+            // Send commmand to coordinator
+            commandDataOut.writeUTF(command + " " + String.valueOf(ID));
+            commandDataOut.flush();
+
+            // Delete the messageHandler thread
+            messageThread.interrupt();
+            messageThread = null;
+
+            // Delete the message file
+            // TODO: Check if you SHOULD delete this file
+            File file = new File(messageFile);
+            file.delete();
+
+            // Await awknoledgement from coordinator
+            commandDataIn.readUTF();
+        } catch (IOException e) {
+            System.out.println("Error deregistering participant with coordinator: " + e.toString());
         }
     }
 
     public static void main(String[] args) {
         Participant participant = new Participant();
         participant.run(args[0]);
+    }
+
+}
+
+class MessageHandler implements Runnable {
+    private Socket messageSocket;
+    private DataInputStream messageDataIn;
+    private DataOutputStream messageDataOut; // TODO: Do we need this?
+    private String messageLogsFile;
+
+    public MessageHandler(String command, String ip, String messageLogsFile) throws IOException{
+        String[] parts = command.split(" ");
+        this.messageLogsFile = messageLogsFile;
+        this.messageSocket = new Socket(ip, Integer.parseInt(parts[1]));
+        this.messageDataIn = new DataInputStream(this.messageSocket.getInputStream());
+        this.messageDataOut = new DataOutputStream(this.messageSocket.getOutputStream());
+    }
+
+    @Override
+    public void run() {
+        File file = new File(messageLogsFile); // Create file object
+
+        // Listen for new messages and write to file
+        while (true) { 
+            try {
+                String message = messageDataIn.readUTF();
+                System.out.println("[DEBUG] Message Received: " + message);   
+            } catch (IOException e) {
+            }
+        }
     }
 
 }
