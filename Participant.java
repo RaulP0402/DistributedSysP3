@@ -14,6 +14,7 @@ class Participant {
     Socket commandSocket;
     DataInputStream commandDataIn;
     DataOutputStream commandDataOut;
+    boolean isRegistered;
 
     public void run(String configFile) {
 
@@ -23,6 +24,7 @@ class Participant {
             ID = Long.parseLong(scanner.nextLine());
             messageFile = scanner.nextLine();
             ipAndPortNumber = scanner.nextLine();
+            isRegistered = false;
         } catch (FileNotFoundException e) {
             System.out.println("Error reading participant configuration file: " + configFile);
             return;
@@ -59,14 +61,28 @@ class Participant {
                         commandDataIn.readUTF();
                         break;
                     case ("deregister"):
-                        handleDeregister(command);
-                        commandDataIn.readUTF();
+                        if (isRegistered) {
+                            handleDeregister(command);
+                            commandDataIn.readUTF();
+                        } else {
+                            System.out.println("Need to be registered to deregister");
+                        }
                         break;
                     case ("disconnect"):
-                        System.out.println("ERROR: Disconnect not implemented");
+                        if (isRegistered) {
+                            handleDeregister(command);
+                            commandDataIn.readUTF();  
+                        } else {
+                            System.out.println("Need to be registered to disconnect");
+                        }
                         break;
                     case ("reconnect"):
-                        System.out.println("ERROR: Reconnect not implemented");
+                        if (isRegistered) {
+                            handleReconnect(command, ipAndPortNumber);
+                            commandDataIn.readUTF();
+                        } else {
+                            System.out.println("Need to registered before reconnecteding");
+                        }
                         break;
                     case ("msend"):
                         System.out.println("ERROR: msend not implemented");
@@ -88,6 +104,23 @@ class Participant {
 
     }
 
+    private void handleReconnect(String command, String ip) {
+        try {
+            // Send reconnect command to coordinator
+            commandDataOut.writeUTF(command + " " + ID);
+            commandDataOut.flush();
+
+            // Await acknowledgment from coordinator
+            commandDataIn.readUTF();
+
+            // Restart the message listener thread
+            messageThread = new Thread(new MessageHandler(command, ip, messageFile));
+            messageThread.start();
+        } catch (IOException e) {
+            System.out.println("Error reconnecting participant: " + e.toString());
+        }
+    }
+
     private void handleRegister(String command, String ip) {
         try {
             // Create messageFile
@@ -104,6 +137,7 @@ class Participant {
             // Start a new thread to handle messages
             messageThread = new Thread ( new MessageHandler(command, ip, messageFile));
             messageThread.start();
+            isRegistered = true;
 
         } catch (IOException e) {
             System.out.println("Error registering participant with coordinator: " + e.toString());
@@ -120,15 +154,11 @@ class Participant {
             messageThread.interrupt();
             messageThread = null;
 
-            // Delete the message file
-            // TODO: Check if you SHOULD delete this file
-            File file = new File(messageFile);
-            file.delete();
-
             // Await awknoledgement from coordinator
             commandDataIn.readUTF();
+            isRegistered = false;
         } catch (IOException e) {
-            System.out.println("Error deregistering participant with coordinator: " + e.toString());
+            System.out.println("Error " + command + " participant with coordinator: " + e.toString());
         }
     }
 

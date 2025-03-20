@@ -44,6 +44,7 @@ public class Coordinator {
     }
 
     public void run() {
+        System.out.println("Coordinator running. Waiting for connections...");
 
         // Start worker threads (10 of them)
         for (long i = 0; i < 10; i++) {
