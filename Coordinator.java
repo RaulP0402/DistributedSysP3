@@ -6,6 +6,7 @@ import java.io.IOException;
 import static java.lang.System.exit;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Iterator;
 import java.util.Scanner;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -108,6 +109,12 @@ public class Coordinator {
                                 case ("deregister"):
                                     deregisterClient(Long.parseLong(parts[1]));
                                     break;
+                                case ("disconnect"):
+                                    disconnectClient(Long.parseLong(parts[1]));
+                                    break;
+                                case("reconnect"):
+                                    reconnectClient(Long.parseLong(parts[2]), Integer.parseInt(parts[1]));
+                                    break;
                                 default:
                                     break;
                             }
@@ -201,7 +208,20 @@ public class Coordinator {
     public void disconnectClient(long clientProvidedId) {
         Long assignedId = clientIdMap.get(clientProvidedId);
         if (assignedId != null) {
-            clientMap.get(assignedId).setConnected(false);
+            try {
+                clientMap.get(assignedId).setConnected(false);
+
+                Client client = clientMap.get(assignedId);
+
+                client.messageSocket.close();
+                client.messageDataIn.close();
+                client.messageDataOut.close();
+
+                client.commandDataOut.writeUTF("OK");
+                client.commandDataOut.flush();
+            } catch (IOException e) {
+                System.out.println("Error disconnecting client: " + clientProvidedId + " " + e.getMessage());
+            }
         }
     }
 
@@ -210,11 +230,39 @@ public class Coordinator {
      *  NOTE: This method works similar to register client. We get the portNumber from command and 
      *  create a new message socket for the client.
      */
-    public void reconnectClient(long clientProvidedId, String ipAddress, int port) {
+    public void reconnectClient(long clientProvidedId, int port) {
         Long assignedId = clientIdMap.get(clientProvidedId);
         if (assignedId != null) {
-            clientMap.get(assignedId).setConnected(true);
-            // Messages will be retrieved from the queue when needed
+            try {
+                Client client = clientMap.get(assignedId);
+
+                ServerSocket messageServerSocket = new ServerSocket(port);
+
+                client.commandDataOut.writeUTF("OK");
+                client.commandDataOut.flush();
+
+                // Create new sockets
+                Socket messageSocket = messageServerSocket.accept();
+                clientMap.get(assignedId).setConnected(true);
+                client.messageSocket = messageSocket;
+                client.messageDataIn = new DataInputStream(messageSocket.getInputStream());
+                client.messageDataOut = new DataOutputStream(messageSocket.getOutputStream());
+
+                // Messages will be retrieved from the queue when needed
+                Iterator<Message> iterator = messageQueue.iterator();
+
+                while (iterator.hasNext()) {
+                    Message nextMessage = iterator.next();
+                    if (nextMessage.timestamp > client.lastMsgReceived) {
+                        client.messageDataOut.writeUTF(nextMessage.message);
+                        client.messageDataOut.flush();
+                        client.lastMsgReceived = nextMessage.timestamp;
+                    }
+                }
+
+            } catch (IOException e) {
+                System.out.println("Error reconnecting client: " + clientProvidedId + " " + e.getMessage());
+            }
         }
     }
 
