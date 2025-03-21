@@ -216,6 +216,9 @@ public class Coordinator {
                 client.messageSocket.close();
                 client.messageDataIn.close();
                 client.messageDataOut.close();
+
+                client.commandDataOut.writeUTF("OK");
+                client.commandDataOut.flush();
             } catch (IOException e) {
                 System.out.println("Error disconnecting client: " + clientProvidedId + " " + e.getMessage());
             }
@@ -243,7 +246,7 @@ public class Coordinator {
                 clientMap.get(assignedId).setConnected(true);
                 client.messageSocket = messageSocket;
                 client.messageDataIn = new DataInputStream(messageSocket.getInputStream());
-                client.commandDataOut = new DataOutputStream(messageSocket.getOutputStream());
+                client.messageDataOut = new DataOutputStream(messageSocket.getOutputStream());
 
                 // Messages will be retrieved from the queue when needed
                 Iterator<Message> iterator = messageQueue.iterator();
