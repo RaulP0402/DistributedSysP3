@@ -62,7 +62,7 @@ class Participant {
                         break;
                     case ("deregister"):
                         if (isRegistered) {
-                            handleDeregister(command);
+                            handleDeregister(command, false);
                             commandDataIn.readUTF();
                         } else {
                             System.out.println("Need to be registered to deregister");
@@ -70,7 +70,7 @@ class Participant {
                         break;
                     case ("disconnect"):
                         if (isRegistered) {
-                            handleDeregister(command);
+                            handleDeregister(command, true);
                             commandDataIn.readUTF();  
                         } else {
                             System.out.println("Need to be registered to disconnect");
@@ -131,7 +131,7 @@ class Participant {
             commandDataOut.writeUTF(command + " " + String.valueOf(ID));
             commandDataOut.flush();
 
-            // Await awknoledgement from coordinator
+            // Await acknowledgement from coordinator
             commandDataIn.readUTF();
 
             // Start a new thread to handle messages
@@ -144,9 +144,9 @@ class Participant {
         }
     }
 
-    private void handleDeregister(String command) {
+    private void handleDeregister(String command, boolean registered) {
         try {
-            // Send commmand to coordinator
+            // Send command to coordinator
             commandDataOut.writeUTF(command + " " + String.valueOf(ID));
             commandDataOut.flush();
 
@@ -154,9 +154,9 @@ class Participant {
             messageThread.interrupt();
             messageThread = null;
 
-            // Await awknoledgement from coordinator
+            // Await acknowledgement from coordinator
             commandDataIn.readUTF();
-            isRegistered = false;
+            isRegistered = registered;
         } catch (IOException e) {
             System.out.println("Error " + command + " participant with coordinator: " + e.toString());
         }
