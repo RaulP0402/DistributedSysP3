@@ -6,7 +6,6 @@ import java.io.IOException;
 import static java.lang.System.exit;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.Iterator;
 import java.util.Scanner;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
@@ -115,6 +114,10 @@ public class Coordinator {
                                 case("reconnect"):
                                     reconnectClient(Long.parseLong(parts[2]), Integer.parseInt(parts[1]));
                                     break;
+                                case ("msend"):
+                                    String[] message = command.split(" ", 2);
+                                    multicastMessage(message[1]);
+                                    break;
                                 default:
                                     break;
                             }
@@ -159,7 +162,7 @@ public class Coordinator {
                 Socket messageSocket = messageServerSocket.accept();
                 
                 client.setConnected(true);
-                client.lastMsgReceived = System.currentTimeMillis();
+                client.lastMsgReceived = getCurrentTimeInSeconds();
                 client.messageSocket = messageSocket;
                 client.messageDataIn = new DataInputStream(messageSocket.getInputStream());
                 client.messageDataOut = new DataOutputStream(messageSocket.getOutputStream());
@@ -178,11 +181,10 @@ public class Coordinator {
         This is to ensure we still can read from commandSocket and process any future commands (i.e register).
      */
     public void deregisterClient(long clientProvidedId) {
-        try {
-            Long assignedID = clientIdMap.get(clientProvidedId);
-        
-            Client client = clientMap.get(assignedID);
+        Long assignedID = clientIdMap.get(clientProvidedId);
+        Client client = clientMap.get(assignedID);
 
+        try {
             // Set connected to false
             client.setConnected(false);
             // Close and set messsae socket to null
@@ -207,21 +209,23 @@ public class Coordinator {
      */
     public void disconnectClient(long clientProvidedId) {
         Long assignedId = clientIdMap.get(clientProvidedId);
-        if (assignedId != null) {
-            try {
-                clientMap.get(assignedId).setConnected(false);
+        Client client = clientMap.get(assignedId);
+        try {
+            client.setConnected(false);
 
-                Client client = clientMap.get(assignedId);
+            // Close message socket
+            client.messageSocket.close();
+            client.messageSocket = null;
 
-                client.messageSocket.close();
-                client.messageDataIn.close();
-                client.messageDataOut.close();
-
-                client.commandDataOut.writeUTF("OK");
-                client.commandDataOut.flush();
-            } catch (IOException e) {
-                System.out.println("Error disconnecting client: " + clientProvidedId + " " + e.getMessage());
-            }
+            // Close data streams
+            client.messageDataIn.close();
+            client.messageDataOut.close();
+            
+            // Send awk back
+            client.commandDataOut.writeUTF("OK");
+            client.commandDataOut.flush();
+        } catch (IOException e) {
+            System.out.println("Error disconnecting client: " + clientProvidedId + " " + e.getMessage());
         }
     }
 
@@ -232,37 +236,37 @@ public class Coordinator {
      */
     public void reconnectClient(long clientProvidedId, int port) {
         Long assignedId = clientIdMap.get(clientProvidedId);
-        if (assignedId != null) {
-            try {
-                Client client = clientMap.get(assignedId);
+        Client client = clientMap.get(assignedId);
+        
+        try (ServerSocket messageServerSocket = new ServerSocket(port)) {
 
-                ServerSocket messageServerSocket = new ServerSocket(port);
+            client.commandDataOut.writeUTF("OK");
+            client.commandDataOut.flush();
 
-                client.commandDataOut.writeUTF("OK");
-                client.commandDataOut.flush();
+            // Create new sockets
+            Socket messageSocket = messageServerSocket.accept();
 
-                // Create new sockets
-                Socket messageSocket = messageServerSocket.accept();
-                clientMap.get(assignedId).setConnected(true);
-                client.messageSocket = messageSocket;
-                client.messageDataIn = new DataInputStream(messageSocket.getInputStream());
-                client.messageDataOut = new DataOutputStream(messageSocket.getOutputStream());
+            // Set connected to true
+            client.setConnected(true);
+            
+            // Assign message socket 
+            client.messageSocket = messageSocket;
 
-                // Messages will be retrieved from the queue when needed
-                Iterator<Message> iterator = messageQueue.iterator();
-
-                while (iterator.hasNext()) {
-                    Message nextMessage = iterator.next();
-                    if (nextMessage.timestamp > client.lastMsgReceived) {
-                        client.messageDataOut.writeUTF(nextMessage.message);
-                        client.messageDataOut.flush();
-                        client.lastMsgReceived = nextMessage.timestamp;
-                    }
+            // Assign data streams
+            client.messageDataIn = new DataInputStream(messageSocket.getInputStream());
+            client.messageDataOut = new DataOutputStream(messageSocket.getOutputStream());
+            
+            // Messages will be retrieved from the queue when needed
+            for (Message nextMessage : messageQueue) {
+                if (nextMessage.timestamp > client.lastMsgReceived) {
+                    client.messageDataOut.writeUTF(nextMessage.message);
+                    client.messageDataOut.flush();
+                    client.lastMsgReceived = nextMessage.timestamp;
                 }
-
-            } catch (IOException e) {
-                System.out.println("Error reconnecting client: " + clientProvidedId + " " + e.getMessage());
             }
+
+        } catch (IOException e) {
+            System.out.println("Error reconnecting client: " + clientProvidedId + " " + e.getMessage());
         }
     }
 
@@ -272,21 +276,37 @@ public class Coordinator {
      * Then, we iterate through all the clients and if the client is currently connected then  we send the messsage
      * through theyr message socket.
      */
-    public void multicastMessage(long clientProvidedId, String message) {
+    public void multicastMessage(String msg) {
         
-        Message msg = new Message(message, System.currentTimeMillis());
+        // Create message object
+        Message message = new Message(msg, getCurrentTimeInSeconds());
+        // Add to message queue
+        messageQueue.add(message);
 
-        Long assignedId = clientIdMap.get(clientProvidedId);
-        if (assignedId != null) {
-            messageQueue.add(msg); // Add to the global message queue
+        for (Client client: clientMap.values()) {
+            if (client.isConnected) {
+                try {
+                    client.messageDataOut.writeUTF(message.message);
+                    client.messageDataOut.flush();
+
+                    client.lastMsgReceived = message.timestamp;   
+                } catch (IOException e) {
+                    System.out.println("Error sending multicast message.");
+                }
+            }
         }
+        
     }
 
     /*
      * This method checks if the message is older than T_now - T_d
      */
     private Boolean isStaleMessage(Message message) {
-        return (System.currentTimeMillis() - this.T_d) > message.timestamp;
+        return (getCurrentTimeInSeconds() - this.T_d) > message.timestamp;
+    }
+
+    private Long getCurrentTimeInSeconds() {
+        return System.currentTimeMillis() / 1000;
     }
 
     // Inner class representing a client
@@ -300,7 +320,7 @@ public class Coordinator {
         public Client(long clientId, Socket commandSocket) throws IOException {
             this.clientId = clientId;
             this.isConnected = false; // Initially not connected
-            this.lastMsgReceived = System.currentTimeMillis();
+            this.lastMsgReceived = 0;
 
             this.commandSocket = commandSocket;
             this.commandDataIn = new DataInputStream(commandSocket.getInputStream());

@@ -2,6 +2,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.Scanner;
@@ -14,7 +15,7 @@ class Participant {
     Socket commandSocket;
     DataInputStream commandDataIn;
     DataOutputStream commandDataOut;
-    boolean isRegistered;
+    boolean isRegistered, isConnected;
 
     public void run(String configFile) {
 
@@ -25,6 +26,7 @@ class Participant {
             messageFile = scanner.nextLine();
             ipAndPortNumber = scanner.nextLine();
             isRegistered = false;
+            isConnected = false;
         } catch (FileNotFoundException e) {
             System.out.println("Error reading participant configuration file: " + configFile);
             return;
@@ -57,41 +59,53 @@ class Participant {
 
                 switch(parts[0]) {
                     case ("register"):
-                        handleRegister(command, ipAndPort[0]);
-                        commandDataIn.readUTF();
+                        if (!isRegistered) {    
+                            handleRegister(command, ipAndPort[0]);
+                            commandDataIn.readUTF();
+                            isConnected = true;
+                        } else {
+                            System.out.println("Participant is already registered.");
+                        }
                         break;
                     case ("deregister"):
                         if (isRegistered) {
                             handleDeregister(command, false);
                             commandDataIn.readUTF();
+                            isConnected = false;
                         } else {
                             System.out.println("Need to be registered to deregister");
                         }
                         break;
                     case ("disconnect"):
-                        if (isRegistered) {
+                        if (isRegistered && isConnected) {
                             handleDeregister(command, true);
                             commandDataIn.readUTF();  
+                            isConnected = false;
                         } else {
-                            System.out.println("Need to be registered to disconnect");
+                            if (!isRegistered) System.out.println("Need to be registered to disconnect");
+                            else if (!isConnected) System.out.println("Need to be conncetd to disconnect");
                         }
                         break;
                     case ("reconnect"):
-                        if (isRegistered) {
-                            handleReconnect(command, ipAndPortNumber);
+                        if (isRegistered && !isConnected) {
+                            handleReconnect(command, ipAndPort[0]);
                             commandDataIn.readUTF();
+                            isConnected = true;
                         } else {
-                            System.out.println("Need to registered before reconnecteding");
+                            if (!isRegistered) System.out.println("Need to registered before reconnecteding");
+                            else if (isConnected) System.out.println("Participant is already connected.");
                         }
                         break;
                     case ("msend"):
-                        System.out.println("ERROR: msend not implemented");
+                        if (isRegistered && isConnected) {
+                            handleMulticastSend(command);
+                            commandDataIn.readUTF();
+                        } else {
+                            if (!isRegistered) System.out.println("Must be registered before sending a message.");
+                            else if (!isConnected) System.out.println("Must be connected before sending a message.");
+                        }
                         break;
                     default:
-                        // TODO: Delete sending this command to coordinator
-                        commandDataOut.writeUTF(command + " " + String.valueOf(ID));
-                        commandDataOut.flush();
-                        commandDataIn.readUTF();
                         System.out.println("ERROR: Invalid command");
                         break;
                 }
@@ -102,6 +116,15 @@ class Participant {
             return;
         }
 
+    }
+
+    private void handleMulticastSend(String command) {
+        try {
+            commandDataOut.writeUTF(command);
+            commandDataOut.flush();
+        } catch (IOException e) {   
+            System.out.println("Error sending msend " + e.toString());
+        }
     }
 
     private void handleReconnect(String command, String ip) {
@@ -154,6 +177,13 @@ class Participant {
             messageThread.interrupt();
             messageThread = null;
 
+            // On deregister, remove old messsages
+            if (!registered) {
+                // Delete messages 
+                File file = new File(messageFile);
+                file.delete();
+            }
+
             // Await acknowledgement from coordinator
             commandDataIn.readUTF();
             isRegistered = registered;
@@ -172,7 +202,6 @@ class Participant {
 class MessageHandler implements Runnable {
     private Socket messageSocket;
     private DataInputStream messageDataIn;
-    private DataOutputStream messageDataOut; // TODO: Do we need this?
     private String messageLogsFile;
 
     public MessageHandler(String command, String ip, String messageLogsFile) throws IOException{
@@ -180,7 +209,6 @@ class MessageHandler implements Runnable {
         this.messageLogsFile = messageLogsFile;
         this.messageSocket = new Socket(ip, Integer.parseInt(parts[1]));
         this.messageDataIn = new DataInputStream(this.messageSocket.getInputStream());
-        this.messageDataOut = new DataOutputStream(this.messageSocket.getOutputStream());
     }
 
     @Override
@@ -189,9 +217,11 @@ class MessageHandler implements Runnable {
 
         // Listen for new messages and write to file
         while (true) { 
-            try {
+            try (FileWriter file_out = new FileWriter(file, true)) {
                 String message = messageDataIn.readUTF();
-                System.out.println("[DEBUG] Message Received: " + message);   
+
+                file_out.write(message + "\n");
+
             } catch (IOException e) {
             }
         }
