@@ -73,7 +73,6 @@ public class Coordinator {
             }
         } catch (IOException e) {
             System.out.println("Error listening on port: " + portNumber + " " + e.getMessage());
-            return;
         }
     }
 
@@ -102,24 +101,16 @@ public class Coordinator {
 
                             String[] parts = command.split(" ");
                             switch (parts[0]) {
-                                case ("register"):
-                                    registerClient(Long.parseLong(parts[2]), Integer.parseInt(parts[1]));
-                                    break;
-                                case ("deregister"):
-                                    deregisterClient(Long.parseLong(parts[1]));
-                                    break;
-                                case ("disconnect"):
-                                    disconnectClient(Long.parseLong(parts[1]));
-                                    break;
-                                case("reconnect"):
-                                    reconnectClient(Long.parseLong(parts[2]), Integer.parseInt(parts[1]));
-                                    break;
-                                case ("msend"):
+                                case ("register") -> registerClient(Long.parseLong(parts[2]), Integer.parseInt(parts[1]));
+                                case ("deregister") -> deregisterClient(Long.parseLong(parts[1]));
+                                case ("disconnect") -> disconnectClient(Long.parseLong(parts[1]));
+                                case("reconnect") -> reconnectClient(Long.parseLong(parts[2]), Integer.parseInt(parts[1]));
+                                case ("msend") -> {
                                     String[] message = command.split(" ", 2);
                                     multicastMessage(message[1]);
-                                    break;
-                                default:
-                                    break;
+                                }
+                                default -> {
+                                }
                             }
                             
                             // Send awknoledgement to client that you processed command

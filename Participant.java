@@ -58,7 +58,7 @@ class Participant {
                 String[] parts = command.split(" ");
 
                 switch(parts[0]) {
-                    case ("register"):
+                    case ("register") -> {
                         if (!isRegistered) {    
                             handleRegister(command, ipAndPort[0]);
                             commandDataIn.readUTF();
@@ -66,8 +66,8 @@ class Participant {
                         } else {
                             System.out.println("Participant is already registered.");
                         }
-                        break;
-                    case ("deregister"):
+                    }
+                    case ("deregister") -> {
                         if (isRegistered) {
                             handleDeregister(command, false);
                             commandDataIn.readUTF();
@@ -75,8 +75,8 @@ class Participant {
                         } else {
                             System.out.println("Need to be registered to deregister");
                         }
-                        break;
-                    case ("disconnect"):
+                    }
+                    case ("disconnect") -> {
                         if (isRegistered && isConnected) {
                             handleDeregister(command, true);
                             commandDataIn.readUTF();  
@@ -85,8 +85,8 @@ class Participant {
                             if (!isRegistered) System.out.println("Need to be registered to disconnect");
                             else if (!isConnected) System.out.println("Need to be conncetd to disconnect");
                         }
-                        break;
-                    case ("reconnect"):
+                    }
+                    case ("reconnect") -> {
                         if (isRegistered && !isConnected) {
                             handleReconnect(command, ipAndPort[0]);
                             commandDataIn.readUTF();
@@ -95,8 +95,8 @@ class Participant {
                             if (!isRegistered) System.out.println("Need to registered before reconnecteding");
                             else if (isConnected) System.out.println("Participant is already connected.");
                         }
-                        break;
-                    case ("msend"):
+                    }
+                    case ("msend") -> {
                         if (isRegistered && isConnected) {
                             handleMulticastSend(command);
                             commandDataIn.readUTF();
@@ -104,16 +104,13 @@ class Participant {
                             if (!isRegistered) System.out.println("Must be registered before sending a message.");
                             else if (!isConnected) System.out.println("Must be connected before sending a message.");
                         }
-                        break;
-                    default:
-                        System.out.println("ERROR: Invalid command");
-                        break;
+                    }
+                    default -> System.out.println("ERROR: Invalid command");
                 }
             }
 
         } catch (Exception e) {
             System.out.println("Error reading from System.in" + e.toString());
-            return;
         }
 
     }
