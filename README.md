@@ -1,24 +1,17 @@
-# DistributedSysP3
+Persistent and Asynchronous Multicast System
 
-# TODO's:
-    1. Implement disconnect, reconnect, multicast send. I added my personal notes to every method to help, not necessary to implement same way as I said, I just added it to help just incase.
-    2. Future improvements could be to handle command sequence correctness. I.e you cant multicaset send if youre not registered, you cant reconnect if you are currently connected, etc. But right now, lets assume the sequence of commands are all valid.
+Group Members:
+- Raul Perez-Lopez
+- Greg Steckel
+- Carlos De Santiago
 
+How to run:
+- Compile both the coordinator and participant: javac Coordinator.java & javac Participant.java
+- Initialize your coordinator first: java Coordinator `<path to coordinator config file>`
+- Initialize your participant after: java Participant `<path to participant config file>`
 
-## Discoonnect Extra Notes:
-    - Similar to deregister, we need to:
-        - set connected to false
-        - close the messageSocket so it doesn't receive any future messages until it reconnects.
-        - Close any data streams (i.e messageDataIn, messageDataOut)
-    However, with disconnect we are not removiing the mesageLogsFile on the participant side. I believe this is the only clear distinction between disconnect and deregister. When you deregister you lose any old messages, but when you disconnect you dont.
+Note:
+- Ensure you are running Java version 17 or later
 
-
-## Reconnect Extra Notes:
-    - This is also similar to register client. we need to:
-        - Create serverSocket on coordinator side and away a new socket for the messageSocket.
-        - Set connected to True
-    However, the distinctions between reconncet and register are:
-        - When you reconnect, you need to make sure youre caught up on all valid old messages.
-
-## Multicast Send Extra Notes:
-    - This is pretty straightforward, just iterate thorugh every participant in the clientMap and send them the message through the message socket.
+This project was done in its entirety by Raul Perez-Lopez, Greg Steckel, and Carlos De Santiago. We hereby state that we have not received unauthorized help of any form.
+   
